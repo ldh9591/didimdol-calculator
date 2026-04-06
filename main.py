@@ -12,7 +12,7 @@ INTEREST_RATES = {
     "8.5천~1억": {10: 3.90, 15: 3.95, 20: 4.05, 30: 4.15},
 }
 
-# 2. 인기 배당주 사전 (우량주 필터링 풀)
+# 2. 인기 배당주 사전
 POPULAR_STOCKS = {
     "🇺🇸 리얼티 인컴 (O)": "O",
     "🇺🇸 SCHD (미국 우량 배당 ETF)": "SCHD",
@@ -24,7 +24,7 @@ POPULAR_STOCKS = {
     "🇰🇷 기업은행 (024110)": "024110.KS"
 }
 
-# 3. 데이터 수집 함수 (뻥튀기 버그 수정 완료)
+# 3. 데이터 수집 함수
 @st.cache_data(ttl=3600)
 def get_dividend_yield(ticker):
     try:
@@ -34,9 +34,9 @@ def get_dividend_yield(ticker):
             div_yield = stock.info.get('trailingAnnualDividendYield')
             
         if div_yield is not None:
-            if div_yield > 0.3: # 이미 % 단위로 온 경우
+            if div_yield > 0.3: 
                 return float(div_yield)
-            else: # 소수점으로 온 경우
+            else: 
                 return float(div_yield) * 100
         else:
             return 0.0
@@ -71,23 +71,58 @@ def main():
     be_yield = (final_rate / (1 - 0.154)) if loan_amount > 0 else 0
 
     # ──────────────────────────────────────────────
-    # 메인: 장바구니 종목 선택
+    # 상태 저장소 (Session State) 초기화 - 새로고침해도 기억하게 만들기
+    # ──────────────────────────────────────────────
+    if 'portfolio_options' not in st.session_state:
+        st.session_state.portfolio_options = list(POPULAR_STOCKS.keys())
+    if 'selected_portfolio' not in st.session_state:
+        st.session_state.selected_portfolio = ["🇺🇸 리얼티 인컴 (O)", "🇺🇸 SCHD (미국 우량 배당 ETF)", "🇰🇷 삼성전자우 (005935)"]
+
+    # 사용자가 직접 입력한 티커를 장바구니 옵션에 추가하는 콜백 함수
+    def add_custom_ticker():
+        val = st.session_state.custom_input.strip().upper()
+        if val:
+            # 쉼표(,)로 여러 종목을 한 번에 입력했을 경우 대비
+            new_tickers = [t.strip() for t in val.split(",") if t.strip()]
+            for t in new_tickers:
+                if t not in st.session_state.portfolio_options:
+                    st.session_state.portfolio_options.append(t)
+                if t not in st.session_state.selected_portfolio:
+                    st.session_state.selected_portfolio.append(t)
+        # 입력이 끝나면 텍스트 입력창 비우기
+        st.session_state.custom_input = ""
+
+    # ──────────────────────────────────────────────
+    # 메인: 🛒 통합형 장바구니 UI
     # ──────────────────────────────────────────────
     st.subheader("🛒 우량 배당주 장바구니 담기")
     inv_amount = st.number_input("총 투자 원금 (원)", value=loan_amount, step=10_000_000)
     st.write(f"💡 **목표:** 이자를 100% 방어하려면 포트폴리오 종합 배당률이 최소 **{be_yield:.2f}%** 이상이어야 합니다.")
 
-    selected_names = st.multiselect(
-        "1️⃣ 검증된 우량 배당주 리스트에서 고르기",
-        options=list(POPULAR_STOCKS.keys()),
-        default=["🇺🇸 리얼티 인컴 (O)", "🇺🇸 SCHD (미국 우량 배당 ETF)", "🇰🇷 삼성전자우 (005935)"]
-    )
-    custom_ticker = st.text_input("2️⃣ 리스트에 없는 종목 직접 추가 (티커 입력 후 엔터)", placeholder="예: AAPL, 058470.KQ")
+    # 1. 새로운 종목 추가 입력창
+    st.text_input("➕ 새로운 종목 티커 추가 (입력 후 엔터를 치세요)", 
+                  placeholder="예: AAPL, 058470.KQ (쉼표로 여러 개 동시 입력 가능)",
+                  key="custom_input",
+                  on_change=add_custom_ticker)
 
-    tickers = [POPULAR_STOCKS[name] for name in selected_names]
-    if custom_ticker:
-        custom_list = [t.strip().upper() for t in custom_ticker.split(",") if t.strip()]
-        tickers.extend(custom_list)
+    # 2. 통합된 장바구니 (태그 형태)
+    selected_names = st.multiselect(
+        "👇 현재 장바구니 (기존 종목을 검색해서 추가하거나 X를 눌러 빼세요)",
+        options=st.session_state.portfolio_options,
+        default=st.session_state.selected_portfolio,
+    )
+    
+    # 사용자가 X를 눌러서 지운 상태를 업데이트
+    st.session_state.selected_portfolio = selected_names
+
+    # 화면에 표시된 이름(태그)들을 실제 티커 코드로 변환
+    tickers = []
+    for name in selected_names:
+        if name in POPULAR_STOCKS:
+            tickers.append(POPULAR_STOCKS[name])
+        else:
+            tickers.append(name) # 직접 입력한 건 이름 자체가 티커임
+            
     tickers = list(dict.fromkeys(tickers)) # 중복 제거
 
     # ──────────────────────────────────────────────
@@ -121,12 +156,10 @@ def main():
             weights = [(y / total_yield) * 100 if total_yield > 0 else (100/n) for y in df_base["배당수익률(%)"]]
             
         elif opt_mode == "🛡️ 스마트 이자 방어 (추천!)":
-            # 종목이 너무 많으면 기본 마진율 조정
             min_weight = min(10.0, 100.0 / n) 
             weights = [min_weight] * n
             remaining_weight = 100.0 - (min_weight * n)
             
-            # 수익률 내림차순 정렬 (공격수 -> 수비수)
             sorted_indices = df_base["배당수익률(%)"].argsort()[::-1]
             
             for idx in sorted_indices:
@@ -135,12 +168,11 @@ def main():
                 current_port_yield = sum(df_base.loc[i, "배당수익률(%)"] * (weights[i]/100) for i in range(n))
                 
                 if current_port_yield >= be_yield:
-                    safest_idx = sorted_indices[-1] # 수익률 가장 낮은 종목(안전 자산)
+                    safest_idx = sorted_indices[-1] 
                     weights[safest_idx] += remaining_weight
                     remaining_weight = 0
                     break
                 else:
-                    # 한 종목당 최대 50%까지만 제한 (분산 투자)
                     add_w = min(remaining_weight, 50.0 - min_weight) 
                     weights[idx] += add_w
                     remaining_weight -= add_w
@@ -186,7 +218,7 @@ def main():
                   delta=f"{monthly_profit:,.0f}원" if monthly_profit >= 0 else f"{monthly_profit:,.0f}원",
                   delta_color="normal" if monthly_profit >= 0 else "inverse")
                   
-        st.info("💡 **전략 요약:** 알고리즘이 입력하신 우량주 중에서 대출 이자를 낼 수 있는 최소한의 고배당주를 채운 뒤, 남은 모든 투자금을 가장 안전한(수익률이 가장 낮은) 주식으로 대피시켰습니다.")
+        st.info("💡 **전략 요약:** 알고리즘이 입력하신 종목 중 대출 이자를 낼 수 있는 고배당주를 먼저 채운 뒤, 남은 모든 투자금을 상대적으로 안전한 수비수(수익률이 가장 낮은) 주식으로 배분했습니다.")
 
 if __name__ == "__main__":
     main()
