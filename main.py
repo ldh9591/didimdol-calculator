@@ -31,7 +31,17 @@ def get_dividend_yield(ticker):
         div_yield = stock.info.get('dividendYield')
         if div_yield is None:
             div_yield = stock.info.get('trailingAnnualDividendYield')
-        return div_yield * 100 if div_yield else 0.0
+            
+        if div_yield is not None:
+            # 🔥 핵심 해결 로직: 
+            # 배당률이 0.3(30%)보다 큰 숫자로 들어왔다면 이미 % 단위(예: 5.2)로 온 것이므로 그대로 씁니다.
+            # 0.3보다 작다면 소수점(예: 0.052)으로 온 것이므로 100을 곱해줍니다.
+            if div_yield > 0.3:
+                return float(div_yield)
+            else:
+                return float(div_yield) * 100
+        else:
+            return 0.0
     except:
         return 0.0
 
