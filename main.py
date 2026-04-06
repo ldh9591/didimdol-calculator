@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import yfinance as yf
 
-# 1. KB국민은행 디딤돌 금리 데이터 (기존 동일)
+# 1. KB국민은행 디딤돌 금리 데이터
 INTEREST_RATES = {
     "2천 이하": {10: 2.40, 15: 2.45, 20: 2.55, 30: 2.70, 40: 2.80},
     "2천~4천": {10: 2.80, 15: 2.85, 20: 2.95, 30: 3.10, 40: 3.20},
@@ -12,18 +12,19 @@ INTEREST_RATES = {
     "8.5천~1억": {10: 3.90, 15: 3.95, 20: 4.05, 30: 4.15},
 }
 
-# ⭐ 새롭게 추가된 인기 배당주 사전 (원하는 종목을 계속 추가할 수 있습니다!)
+# 2. 인기 배당주 사전 (우량주 필터링 풀)
 POPULAR_STOCKS = {
     "🇺🇸 리얼티 인컴 (O)": "O",
-    "🇺🇸 SCHD (미국 배당 ETF)": "SCHD",
+    "🇺🇸 SCHD (미국 우량 배당 ETF)": "SCHD",
     "🇺🇸 JEPI (고배당 커버드콜)": "JEPI",
     "🇺🇸 코카콜라 (KO)": "KO",
-    "🇰🇷 삼성전자 (005930)": "005930.KS",
+    "🇺🇸 마이크로소프트 (MSFT)": "MSFT",
     "🇰🇷 맥쿼리인프라 (088980)": "088980.KS",
-    "🇰🇷 KB금융 (105560)": "105560.KS",
+    "🇰🇷 삼성전자우 (005935)": "005935.KS",
     "🇰🇷 기업은행 (024110)": "024110.KS"
 }
 
+# 3. 데이터 수집 함수 (뻥튀기 버그 수정 완료)
 @st.cache_data(ttl=3600)
 def get_dividend_yield(ticker):
     try:
@@ -33,12 +34,9 @@ def get_dividend_yield(ticker):
             div_yield = stock.info.get('trailingAnnualDividendYield')
             
         if div_yield is not None:
-            # 🔥 핵심 해결 로직: 
-            # 배당률이 0.3(30%)보다 큰 숫자로 들어왔다면 이미 % 단위(예: 5.2)로 온 것이므로 그대로 씁니다.
-            # 0.3보다 작다면 소수점(예: 0.052)으로 온 것이므로 100을 곱해줍니다.
-            if div_yield > 0.3:
+            if div_yield > 0.3: # 이미 % 단위로 온 경우
                 return float(div_yield)
-            else:
+            else: # 소수점으로 온 경우
                 return float(div_yield) * 100
         else:
             return 0.0
@@ -46,11 +44,11 @@ def get_dividend_yield(ticker):
         return 0.0
 
 def main():
-    st.set_page_config(page_title="디딤돌 포트폴리오 계산기", layout="wide")
-    st.title("🏠 디딤돌 이자 방어: 포트폴리오 자산 배분기")
+    st.set_page_config(page_title="디딤돌 포트폴리오 최적화", layout="wide")
+    st.title("🏠 디딤돌 이자 방어: 스마트 자산 배분기")
     
     # ──────────────────────────────────────────────
-    # 사이드바: 대출 조건 설정 (기존과 완벽히 동일)
+    # 사이드바: 대출 조건 설정
     # ──────────────────────────────────────────────
     with st.sidebar:
         st.header("📝 대출 조건 설정")
@@ -73,62 +71,107 @@ def main():
     be_yield = (final_rate / (1 - 0.154)) if loan_amount > 0 else 0
 
     # ──────────────────────────────────────────────
-    # 메인: 🛒 장바구니 방식의 포트폴리오 설정 (새로운 UI)
+    # 메인: 장바구니 종목 선택
     # ──────────────────────────────────────────────
-    st.subheader("📊 포트폴리오 종목 담기")
+    st.subheader("🛒 우량 배당주 장바구니 담기")
     inv_amount = st.number_input("총 투자 원금 (원)", value=loan_amount, step=10_000_000)
-    st.write(f"💡 **목표:** 이자를 방어하려면 종합 배당률이 최소 **{be_yield:.2f}%** 이상이어야 합니다.")
+    st.write(f"💡 **목표:** 이자를 100% 방어하려면 포트폴리오 종합 배당률이 최소 **{be_yield:.2f}%** 이상이어야 합니다.")
 
-    # 1. 멀티셀렉트(드롭다운)로 인기 종목 편하게 담기
     selected_names = st.multiselect(
-        "1️⃣ 인기 배당주 리스트에서 고르기 (클릭해서 담으세요)",
+        "1️⃣ 검증된 우량 배당주 리스트에서 고르기",
         options=list(POPULAR_STOCKS.keys()),
-        default=["🇺🇸 리얼티 인컴 (O)", "🇺🇸 SCHD (미국 배당 ETF)"]
+        default=["🇺🇸 리얼티 인컴 (O)", "🇺🇸 SCHD (미국 우량 배당 ETF)", "🇰🇷 삼성전자우 (005935)"]
     )
+    custom_ticker = st.text_input("2️⃣ 리스트에 없는 종목 직접 추가 (티커 입력 후 엔터)", placeholder="예: AAPL, 058470.KQ")
 
-    # 2. 리스트에 없는 종목은 직접 입력 (옵션)
-    custom_ticker = st.text_input("2️⃣ 리스트에 없는 종목 추가 (티커를 입력하고 엔터를 치세요)", placeholder="예: AAPL, 058470.KQ")
-
-    # 선택된 종목들을 하나의 리스트(tickers)로 합치기
     tickers = [POPULAR_STOCKS[name] for name in selected_names]
-    
     if custom_ticker:
-        # 혹시나 사용자가 쉼표를 써서 여러 개를 넣을 경우도 방어
         custom_list = [t.strip().upper() for t in custom_ticker.split(",") if t.strip()]
         tickers.extend(custom_list)
+    tickers = list(dict.fromkeys(tickers)) # 중복 제거
 
-    # 중복 입력 제거 (순서 유지)
-    tickers = list(dict.fromkeys(tickers))
-
+    # ──────────────────────────────────────────────
+    # 알고리즘: 자산 비중 최적화 로직
+    # ──────────────────────────────────────────────
     if tickers:
         st.divider()
-        st.subheader("⚖️ 자산 비중 조절하기")
+        st.subheader("🤖 알고리즘 자산 비중 조절기")
         
-        data = []
+        raw_data = []
         for t in tickers:
             y = get_dividend_yield(t)
-            data.append({"종목(Ticker)": t, "배당수익률(%)": round(y, 2), "투자 비중(%)": 100 / len(tickers)})
+            raw_data.append({"종목(Ticker)": t, "배당수익률(%)": round(y, 2)})
             
-        df = pd.DataFrame(data)
+        df_base = pd.DataFrame(raw_data)
+        
+        opt_mode = st.radio(
+            "최적화 방식을 선택하세요:", 
+            ["⚖️ 1/N 균등 분배", "💰 고배당 몰빵 (위험)", "🛡️ 스마트 이자 방어 (추천!)"],
+            horizontal=True, index=2
+        )
+
+        n = len(df_base)
+        weights = []
+        
+        if opt_mode == "⚖️ 1/N 균등 분배":
+            weights = [100 / n] * n
+            
+        elif opt_mode == "💰 고배당 몰빵 (위험)":
+            total_yield = df_base["배당수익률(%)"].sum()
+            weights = [(y / total_yield) * 100 if total_yield > 0 else (100/n) for y in df_base["배당수익률(%)"]]
+            
+        elif opt_mode == "🛡️ 스마트 이자 방어 (추천!)":
+            # 종목이 너무 많으면 기본 마진율 조정
+            min_weight = min(10.0, 100.0 / n) 
+            weights = [min_weight] * n
+            remaining_weight = 100.0 - (min_weight * n)
+            
+            # 수익률 내림차순 정렬 (공격수 -> 수비수)
+            sorted_indices = df_base["배당수익률(%)"].argsort()[::-1]
+            
+            for idx in sorted_indices:
+                if remaining_weight <= 0:
+                    break
+                current_port_yield = sum(df_base.loc[i, "배당수익률(%)"] * (weights[i]/100) for i in range(n))
+                
+                if current_port_yield >= be_yield:
+                    safest_idx = sorted_indices[-1] # 수익률 가장 낮은 종목(안전 자산)
+                    weights[safest_idx] += remaining_weight
+                    remaining_weight = 0
+                    break
+                else:
+                    # 한 종목당 최대 50%까지만 제한 (분산 투자)
+                    add_w = min(remaining_weight, 50.0 - min_weight) 
+                    weights[idx] += add_w
+                    remaining_weight -= add_w
+            
+            if remaining_weight > 0:
+                for i in range(n):
+                    weights[i] += remaining_weight / n
+
+        df_base["투자 비중(%)"] = [round(w, 1) for w in weights]
         
         col1, col2 = st.columns([1.5, 1])
         
         with col1:
-            st.caption("👇 표의 **'투자 비중(%)'** 숫자를 더블클릭해서 원하는 대로 수정하세요.")
-            edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True)
+            st.caption("👇 계산된 비중입니다. 원하는 대로 숫자를 더블클릭해서 수정해보세요.")
+            edited_df = st.data_editor(df_base, num_rows="dynamic", use_container_width=True)
             
             total_weight = edited_df["투자 비중(%)"].sum()
             if abs(total_weight - 100) > 0.1:
-                st.error(f"⚠️ 투자 비중의 합이 100%가 아닙니다. 현재 합계: {total_weight:.1f}%")
+                st.error(f"⚠️ 투자 비중의 합이 100%가 아닙니다. (현재 합계: {total_weight:.1f}%)")
                 return 
 
             portfolio_yield = sum((row["배당수익률(%)"] * row["투자 비중(%)"] / 100) for _, row in edited_df.iterrows())
             
         with col2:
             fig_pie = go.Figure(data=[go.Pie(labels=edited_df["종목(Ticker)"], values=edited_df["투자 비중(%)"], hole=.3)])
-            fig_pie.update_layout(margin=dict(t=0, b=0, l=0, r=0), height=200)
+            fig_pie.update_layout(margin=dict(t=0, b=0, l=0, r=0), height=250)
             st.plotly_chart(fig_pie, use_container_width=True)
 
+        # ──────────────────────────────────────────────
+        # 최종 결과 및 월간 현금흐름
+        # ──────────────────────────────────────────────
         st.divider()
         monthly_loan_interest = (loan_amount * (final_rate / 100)) / 12
         monthly_div_net = (inv_amount * (portfolio_yield / 100) * (1 - 0.154)) / 12
@@ -142,6 +185,8 @@ def main():
         res_col3.metric("최종 월 순수익", f"{monthly_profit:,.0f}원", 
                   delta=f"{monthly_profit:,.0f}원" if monthly_profit >= 0 else f"{monthly_profit:,.0f}원",
                   delta_color="normal" if monthly_profit >= 0 else "inverse")
+                  
+        st.info("💡 **전략 요약:** 알고리즘이 입력하신 우량주 중에서 대출 이자를 낼 수 있는 최소한의 고배당주를 채운 뒤, 남은 모든 투자금을 가장 안전한(수익률이 가장 낮은) 주식으로 대피시켰습니다.")
 
 if __name__ == "__main__":
     main()
